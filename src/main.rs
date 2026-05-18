@@ -1,6 +1,7 @@
 mod search;
 mod fetch;
 mod extract;
+mod context;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -33,6 +34,25 @@ async fn main() -> anyhow::Result<()> {
         println!();
     }
     println!();
+
+    let ctx = context::build_context(query, extracted_pages);
+
+    println!("System Prompt");
+    println!("{}", ctx.system_prompt);
+    println!();
+
+    println!("User Prompt");
+    println!("{}", ctx.user_prompt.chars().take(800).collect::<String>());
+    println!();
+    println!("{}", ctx.user_prompt.chars().rev().take(300).collect::<Vec<_>>().into_iter().rev().collect::<String>());
+    println!("Number of chars: {}", ctx.user_prompt.len());
+    println!();
+
+    println!("Citations");
+    for c in &ctx.citations {
+        println!("[{}] {} - {}", c.n, c.title, c.url);
+    }
+    println!(); 
 
     Ok(())
 }
