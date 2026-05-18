@@ -1,5 +1,6 @@
 mod search;
 mod fetch;
+mod extract;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -13,16 +14,25 @@ async fn main() -> anyhow::Result<()> {
     let top_k = 5;
 
     let search_results = search::search(&client, searxng_base_url, query, top_k).await?;
-
     for r in &search_results {
         println!("[{}] {} - {} (score: {})", r.engine, r.title, r.url, r.score);
     }
+    println!();
 
     let fetched_pages = fetch::fetch_all(&client, search_results).await;
-
     for p in &fetched_pages {
         println!("[{} chars] {} - {}", p.html.len(), p.title, p.url);
     }
+    println!();
+
+    let extracted_pages = extract::extract_all(fetched_pages);
+    for (i, e) in extracted_pages.iter().enumerate() {
+        println!("-- {}. {} --", i+1, e.title);
+        println!("{}", e.url);
+        println!("[{} chars] {}", e.text.len(), e.text.chars().take(300).collect::<String>());
+        println!();
+    }
+    println!();
 
     Ok(())
 }
