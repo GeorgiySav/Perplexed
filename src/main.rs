@@ -2,6 +2,8 @@ mod search;
 mod fetch;
 mod extract;
 mod context;
+mod llm;
+mod render;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -15,18 +17,23 @@ async fn main() -> anyhow::Result<()> {
     let top_k = 5;
 
     let search_results = search::search(&client, searxng_base_url, query, top_k).await?;
+    /*
     for r in &search_results {
         println!("[{}] {} - {} (score: {})", r.engine, r.title, r.url, r.score);
     }
     println!();
+    */
 
     let fetched_pages = fetch::fetch_all(&client, search_results).await;
+    /*
     for p in &fetched_pages {
         println!("[{} chars] {} - {}", p.html.len(), p.title, p.url);
     }
     println!();
+    */
 
     let extracted_pages = extract::extract_all(fetched_pages);
+    /* 
     for (i, e) in extracted_pages.iter().enumerate() {
         println!("-- {}. {} --", i+1, e.title);
         println!("{}", e.url);
@@ -34,9 +41,10 @@ async fn main() -> anyhow::Result<()> {
         println!();
     }
     println!();
+    */
 
     let ctx = context::build_context(query, extracted_pages);
-
+    /*
     println!("System Prompt");
     println!("{}", ctx.system_prompt);
     println!();
@@ -52,7 +60,20 @@ async fn main() -> anyhow::Result<()> {
     for c in &ctx.citations {
         println!("[{}] {} - {}", c.n, c.title, c.url);
     }
-    println!(); 
+    println!();  
+    */
+
+
+    llm::stream_chat(
+        &client,
+        "http://localhost:11434",
+        "qwen2.5:7b",
+        ctx.system_prompt,
+        &ctx.user_prompt,
+        render::print_token
+    ).await?;
+    println!();
+    render::print_sources(&ctx.citations);
 
     Ok(())
 }
