@@ -62,16 +62,16 @@ impl CitationGuard {
 
     pub fn feed(&mut self, token: &str) {
         token.chars().for_each(|c| self.feed_char(c));
-        self.flush();
+        let _ = std::io::stdout().flush();
     }
 
     pub fn flush(&mut self) {
         if self.state == State::InBrackets {
             print!("[{}", self.digits);
+            self.state = State::Normal;
+            self.digits.clear();
         }
         let _ = std::io::stdout().flush();
-        self.state = State::Normal;
-        self.digits.clear();
     }
 }
 

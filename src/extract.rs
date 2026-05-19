@@ -4,7 +4,6 @@ use dom_smoothie::{Config, Readability};
 use crate::fetch::FetchedPage;
 
 const MIN_CHARS_PER_PAGE: usize = 200;
-const MAX_CHARS_PER_PAGE: usize = 4000;
 
 #[derive(Debug, Clone)]
 pub struct ExtractedPage {
@@ -31,7 +30,7 @@ pub fn extract_page(
     let extracted_page = ExtractedPage{
         url: page.url,
         title: page.title,
-        text: article.text_content.chars().take(MAX_CHARS_PER_PAGE).collect::<String>()
+        text: article.text_content.to_string()
     };
 
     Ok(extracted_page)

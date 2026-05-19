@@ -1,4 +1,4 @@
-use crate::extract::ExtractedPage;
+use crate::{chunk::Chunk, extract::ExtractedPage};
 
 pub const SYSTEM_PROMPT: &str = r#"You are a research assistant. Answer the user's question using ONLY the information provided in <source id="N">...</source> blocks in the user message. After each factual claim, cite the source(s) inline using bracketed numbers like [1] or [1][3], where the number matches the source's `id` attribute.
 
@@ -26,16 +26,33 @@ pub struct Context {
 
 pub fn build_context(
     query: &str,
-    docs: Vec<ExtractedPage>
+    docs: &[ExtractedPage],
+    chunks: Vec<Chunk>
 ) -> Context {
     let mut citations: Vec<Citation> = Vec::new();
     let mut source_blocks: Vec<String> = Vec::new();
 
-    for (i, doc) in docs.into_iter().enumerate() {
+    let mut groups: Vec<(usize, Vec<String>)> = Vec::new();
+    for chunk in chunks {
+        if let Some(g) = groups.iter_mut().find(|(idx, _)| *idx == chunk.source_idx) {
+            g.1.push(chunk.text);
+        }
+        else {
+            groups.push((chunk.source_idx, vec![chunk.text]));
+        }
+    }
+
+    for (citation_idx, (source_idx, chunk_texts)) in groups.into_iter().enumerate() {
+        let n = citation_idx + 1;
+        let doc = &docs[source_idx];
+
+        let combined = chunk_texts.join("\n\n");
+
         source_blocks.push(format!(
-            "<source id=\"{}\">\nTitle: {}\nURL: {}\n\n{}</source>", i+1, doc.title, doc.url, doc.text
+            "<source id=\"{}\">\nTitle: {}\nURL: {}\n\n{}</source>",
+            n, doc.title, doc.url, combined 
         ));
-        citations.push(Citation { n: i+1, url: doc.url, title: doc.title });
+        citations.push(Citation { n: n, url: doc.url.clone(), title: doc.title.clone() });
     }
     let sources = source_blocks.join("\n\n");
 

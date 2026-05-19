@@ -1,10 +1,12 @@
-use crate::{search, fetch, extract, context, llm, render};
+use crate::{chunk, context, extract, fetch, llm, render, rerank::{self, rerank}, search};
 use indicatif::{ProgressBar, ProgressStyle};
 
 const SEARXNG_URL: &str = "http://localhost:8888";
 const OLLAMA_URL: &str = "http://localhost:11434";
 const MODEL: &str = "qwen2.5:7b";
+const EMBED_MODEL: &str = "mxbai-embed-large";
 const TOP_K: usize = 5;
+const RERANK_TOP_K: usize = 8;
 const REQUEST_TIMEOUT_SECS: u64 = 10;
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; Perplexed/0.1)";
 
@@ -34,7 +36,15 @@ pub async fn answer(query: &str) -> anyhow::Result<()> {
     let extracted_pages = extract::extract_all(fetched_pages);
     spinner.finish_with_message(format!("Extracted {} pages", extracted_pages.len()));
 
-    let ctx = context::build_context(query, extracted_pages);
+    let spinner = create_spinner("Chunking sources...");
+    let chunks = chunk::chunk(&extracted_pages);
+    spinner.finish_with_message(format!("Built {} chunks", chunks.len()));
+
+    let spinner = create_spinner("Ranking chunks...");
+    let reranked_chunks = rerank::rerank(&client, OLLAMA_URL, EMBED_MODEL, query, chunks, RERANK_TOP_K).await?;
+    spinner.finish_with_message(format!("Selected top {} chunks", reranked_chunks.len()));
+
+    let ctx = context::build_context(query, &extracted_pages, reranked_chunks);
 
     let mut guard = render::CitationGuard::new(ctx.citations.len());
 
