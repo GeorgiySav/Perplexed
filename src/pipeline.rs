@@ -36,6 +36,8 @@ pub async fn answer(query: &str) -> anyhow::Result<()> {
 
     let ctx = context::build_context(query, extracted_pages);
 
+    let mut guard = render::CitationGuard::new(ctx.citations.len());
+
     println!();
     println!();
     llm::stream_chat(
@@ -44,8 +46,9 @@ pub async fn answer(query: &str) -> anyhow::Result<()> {
         MODEL,
         ctx.system_prompt,
         &ctx.user_prompt,
-        render::print_token
+        |tok| guard.feed(tok)
     ).await?;
+    guard.flush();
     println!();
     println!();
     render::print_sources(&ctx.citations);
