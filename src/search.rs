@@ -1,3 +1,6 @@
+use std::{collections::HashSet, hash::Hash};
+
+use futures::future::join_all;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -33,4 +36,24 @@ pub async fn search(
     results.truncate(result_cap);
     
     Ok(results)
+}
+
+pub async fn search_many(
+    client: &reqwest::Client,
+    base_url: &str,
+    queries: &[String],
+    per_query_top_k: usize
+) -> Vec<SearchHit> {
+    let mut seen_urls: HashSet<String> = HashSet::new();
+    
+    let results = join_all(
+        queries.iter().map(|q| search(client, base_url, q, per_query_top_k))
+    ).await
+    .into_iter()
+    .filter_map(|r| r.ok())
+    .flatten()
+    .filter(|h| seen_urls.insert(h.url.clone()))
+    .collect::<Vec<SearchHit>>(); 
+
+    results
 }

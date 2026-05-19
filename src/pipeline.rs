@@ -7,6 +7,7 @@ const MODEL: &str = "qwen2.5:7b";
 const EMBED_MODEL: &str = "mxbai-embed-large";
 const TOP_K: usize = 5;
 const RERANK_TOP_K: usize = 8;
+const PER_QUERY_TOP_K: usize = 4;
 const REQUEST_TIMEOUT_SECS: u64 = 10;
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; Perplexed/0.1)";
 
@@ -43,6 +44,42 @@ async fn rewrite_query(
     )
 }
 
+const QUERY_DECOMPOSE_SYSTEM: &str = r#"You decompose a user question into 1 to 4 standalone search queries that, taken together, cover the question. Output rules:
+- Output ONLY the sub-queries, one per line.
+- No numbering, no prefix, no explanation, no quotes.
+- Use 1 sub-query for simple questions, 2 to 4 for multi-faceted questions.
+- Each sub-query must be a complete standalone search query (no pronouns or references to past context).
+"#;
+
+async fn decompose_query(
+    client: &reqwest::Client,
+    query: &str
+) -> anyhow::Result<Vec<String>> {
+    let messages = vec![
+        Message{
+            role: "system".to_string(),
+            content: QUERY_DECOMPOSE_SYSTEM.to_string()
+        },
+        Message{
+            role: "user".to_string(),
+            content: query.to_string()
+        }
+    ];
+
+    let mut result = llm::chat_once(&client, OLLAMA_URL, MODEL, &messages).await?
+    .lines()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+    .take(4)
+    .collect::<Vec<String>>();
+
+    if result.is_empty() {
+        result.push(query.to_string());
+    }
+
+    Ok(result)
+}
+
 pub async fn answer(
     query: &str,
     history: &[Message]
@@ -55,9 +92,12 @@ pub async fn answer(
 
     let search_query = rewrite_query(&client, history, query).await?;
     
+    let spinner = create_spinner("Decomposing query...");
+    let sub_queries = decompose_query(&client, query).await?;
+    spinner.finish_with_message(format!("Decomposed into {} sub-queries", sub_queries.len()));
 
     let spinner = create_spinner("Searching the web...");
-    let search_results = search::search(&client, SEARXNG_URL, &search_query, TOP_K).await?;
+    let search_results = search::search_many(&client, SEARXNG_URL, &sub_queries, PER_QUERY_TOP_K).await;
     spinner.finish_with_message(format!("Found {} results", search_results.len()));
 
     let spinner = create_spinner("Fetching pages...");
