@@ -1,5 +1,6 @@
-use crate::{chunk, context, extract, fetch, llm::{self, Message}, render, rerank::{self, rerank}, rerank_ce::rerank_ce, search};
+use crate::{chunk, context::{self, Citation}, extract, fetch, llm::{self, Message}, rerank, rerank_ce::rerank_ce, search};
 use indicatif::{ProgressBar, ProgressStyle};
+use tokio::sync::mpsc::UnboundedSender;
 
 const SEARXNG_URL: &str = "http://localhost:8888";
 const OLLAMA_URL: &str = "http://localhost:11434";
@@ -10,6 +11,13 @@ const CROSS_ENCODER_TOP_K: usize = 8;
 const PER_QUERY_TOP_K: usize = 10;
 const REQUEST_TIMEOUT_SECS: u64 = 10;
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; Perplexed/0.1)";
+
+pub enum PipelineEvent {
+    Sources(Vec<Citation>),
+    Token(String),
+    Done,
+    Error(String)
+}
 
 fn create_spinner(message: &str) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
@@ -80,11 +88,12 @@ async fn decompose_query(
     Ok(result)
 }
 
-pub async fn answer(
+
+async fn run_pipeline(
     query: &str,
-    history: &[Message]
-) -> anyhow::Result<String> {
-    
+    history: &[Message],
+    tx: &UnboundedSender<PipelineEvent>
+) -> anyhow::Result<()> { 
     let client = reqwest::Client::builder()
     .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
     .user_agent(USER_AGENT)
@@ -92,35 +101,22 @@ pub async fn answer(
 
     let search_query = rewrite_query(&client, history, query).await?;
     
-    let spinner = create_spinner("Decomposing query...");
     let sub_queries = decompose_query(&client, query).await?;
-    spinner.finish_with_message(format!("Decomposed into {} sub-queries", sub_queries.len()));
 
-    let spinner = create_spinner("Searching the web...");
     let search_results = search::search_many(&client, SEARXNG_URL, &sub_queries, PER_QUERY_TOP_K).await;
-    spinner.finish_with_message(format!("Found {} results", search_results.len()));
 
-    let spinner = create_spinner("Fetching pages...");
     let fetched_pages = fetch::fetch_all(&client, search_results).await;
-    spinner.finish_with_message(format!("Fetched {} results", fetched_pages.len()));
 
-    let spinner = create_spinner("Extracting from pages...");
     let extracted_pages = extract::extract_all(fetched_pages);
-    spinner.finish_with_message(format!("Extracted {} pages", extracted_pages.len()));
 
-    let spinner = create_spinner("Chunking sources...");
     let chunks = chunk::chunk(&extracted_pages);
-    spinner.finish_with_message(format!("Built {} chunks", chunks.len()));
 
-    let spinner = create_spinner("Bi-encoder ranking chunks...");
     let reranked_chunks = rerank::rerank(&client, OLLAMA_URL, EMBED_MODEL, &search_query, chunks, BI_ENCODER_POOL).await?;
-    spinner.finish_with_message(format!("Bi-encoder kept {} chunks", reranked_chunks.len()));
 
-    let spinner = create_spinner("Cross-encoder reranking...");
     let top_chunks = rerank_ce(&search_query, reranked_chunks, CROSS_ENCODER_TOP_K)?;
-    spinner.finish_with_message(format!("Select top {} chunks", top_chunks.len()));
 
     let ctx = context::build_context(query, &extracted_pages, top_chunks);
+    let _ = tx.send(PipelineEvent::Sources(ctx.citations.clone()));
     
     let mut messages = vec![
         Message{
@@ -131,25 +127,30 @@ pub async fn answer(
     messages.extend_from_slice(history);
     messages.push(Message { role: "user".to_string(), content: ctx.user_prompt });
         
-    let mut guard = render::CitationGuard::new(ctx.citations.len());
-    let mut response_buffer = String::new();
-
-    println!();
-    println!();
     llm::stream_chat(
         &client,
         OLLAMA_URL,
         MODEL,
         &messages,
         |tok| {
-            response_buffer.push_str(tok);
-            guard.feed(tok);
+            let _ = tx.send(PipelineEvent::Token(tok.to_string()));
         }
     ).await?;
-    guard.flush();
-    println!();
-    println!();
-    render::print_sources(&ctx.citations);
 
-    Ok(response_buffer)
+    Ok(())
+}
+
+pub async fn answer_streaming(
+    query: String,
+    history: Vec<Message>,
+    tx: UnboundedSender<PipelineEvent>
+) {
+    match run_pipeline(&query, &history, &tx).await {
+        Ok(()) => {
+            let _ = tx.send(PipelineEvent::Done);
+        }
+        Err(e) => {
+            let _ = tx.send(PipelineEvent::Error(format!("{:#}", e)));
+        }
+    }
 }
