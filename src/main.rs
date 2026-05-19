@@ -8,6 +8,7 @@ mod search;
 mod pipeline;
 mod chunk;
 mod rerank;
+mod rerank_ce;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

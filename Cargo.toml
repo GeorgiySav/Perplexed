@@ -38,3 +38,6 @@ dom_smoothie = "0.17.0"
 crossterm = "0.29.0"
 indicatif = "0.18.4"
 rustyline = "18.0.0"
+
+# cross encoder
+fastembed = "5.13.4"

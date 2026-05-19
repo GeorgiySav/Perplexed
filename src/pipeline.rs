@@ -1,13 +1,13 @@
-use crate::{chunk, context, extract, fetch, llm::{self, Message}, render, rerank::{self, rerank}, search};
+use crate::{chunk, context, extract, fetch, llm::{self, Message}, render, rerank::{self, rerank}, rerank_ce::rerank_ce, search};
 use indicatif::{ProgressBar, ProgressStyle};
 
 const SEARXNG_URL: &str = "http://localhost:8888";
 const OLLAMA_URL: &str = "http://localhost:11434";
 const MODEL: &str = "qwen2.5:7b";
 const EMBED_MODEL: &str = "mxbai-embed-large";
-const TOP_K: usize = 5;
-const RERANK_TOP_K: usize = 8;
-const PER_QUERY_TOP_K: usize = 4;
+const BI_ENCODER_POOL: usize = 20;
+const CROSS_ENCODER_TOP_K: usize = 8;
+const PER_QUERY_TOP_K: usize = 10;
 const REQUEST_TIMEOUT_SECS: u64 = 10;
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; Perplexed/0.1)";
 
@@ -112,11 +112,15 @@ pub async fn answer(
     let chunks = chunk::chunk(&extracted_pages);
     spinner.finish_with_message(format!("Built {} chunks", chunks.len()));
 
-    let spinner = create_spinner("Ranking chunks...");
-    let reranked_chunks = rerank::rerank(&client, OLLAMA_URL, EMBED_MODEL, &search_query, chunks, RERANK_TOP_K).await?;
-    spinner.finish_with_message(format!("Selected top {} chunks", reranked_chunks.len()));
+    let spinner = create_spinner("Bi-encoder ranking chunks...");
+    let reranked_chunks = rerank::rerank(&client, OLLAMA_URL, EMBED_MODEL, &search_query, chunks, BI_ENCODER_POOL).await?;
+    spinner.finish_with_message(format!("Bi-encoder kept {} chunks", reranked_chunks.len()));
 
-    let ctx = context::build_context(query, &extracted_pages, reranked_chunks);
+    let spinner = create_spinner("Cross-encoder reranking...");
+    let top_chunks = rerank_ce(&search_query, reranked_chunks, CROSS_ENCODER_TOP_K)?;
+    spinner.finish_with_message(format!("Select top {} chunks", top_chunks.len()));
+
+    let ctx = context::build_context(query, &extracted_pages, top_chunks);
     
     let mut messages = vec![
         Message{
