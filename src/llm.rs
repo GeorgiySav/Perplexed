@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::from_slice;
 
 
-#[derive(Serialize)]
-struct Message {
-    role: String,
-    content: String,
+#[derive(Serialize, Clone, Debug)]
+pub struct Message {
+    pub role: String,
+    pub content: String,
 }
 
 #[derive(Serialize)]
@@ -27,25 +27,40 @@ struct StreamChunk {
     done: bool
 }
 
+pub async fn chat_once(
+    client: &reqwest::Client,
+    ollama_url: &str,
+    model: &str,
+    messages: &[Message]
+) -> anyhow::Result<String> {
+    let request_body = ChatRequest{
+        model: model.to_string(),
+        messages: messages.to_vec(),
+        stream: false,
+    };
+
+    let request_url = format!("{}/api/chat", ollama_url.trim_end_matches("/"));
+    let response = client
+        .post(request_url)
+        .json(&request_body)
+        .send().await?
+        .error_for_status()?
+        .json::<StreamChunk>().await?;
+
+    Ok(response.message.content)
+}
 
 pub async fn stream_chat(
     client: &reqwest::Client,
     ollama_url: &str,
     model: &str,
-    system_prompt: &str,
-    user_prompt: &str,
+    messages: &[Message],
     mut on_token: impl FnMut(&str)
 ) -> anyhow::Result<()> {
 
     let request_body = ChatRequest{
         model: model.to_string(),
-        messages: vec![Message{
-            role: "system".to_string(),
-            content: system_prompt.to_string()
-        }, Message{
-            role: "user".to_string(),
-            content: user_prompt.to_string()
-        }],
+        messages: messages.to_vec(),
         stream: true,
     };
 
