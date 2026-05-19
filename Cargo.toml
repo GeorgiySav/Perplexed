@@ -37,3 +37,4 @@ dom_smoothie = "0.17.0"
 # CLI styling
 crossterm = "0.29.0"
 indicatif = "0.18.4"
+rustyline = "18.0.0"
