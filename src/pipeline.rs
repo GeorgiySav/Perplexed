@@ -27,7 +27,16 @@ fn create_spinner(message: &str) -> ProgressBar {
     pb
 }
 
-const QUERY_REWRITE_SYSTEM: &str = "You rewrite the user's latest message into a standalone search query, using the conversation history to resolve pronouns and references. When the latest message is ambiguous, prefer the topic of the most recent assistant response. Return ONLY the rewritten query — no explanation, no quotes, no prefix.";
+const QUERY_REWRITE_SYSTEM: &str = r#"You rewrite the user's latest message into a standalone search query that a search engine could answer without any prior context.
+
+Rules:
+- The rewrite MUST be self-contained. Anyone reading just the rewrite — without the conversation history — should understand the subject.
+- Identify the main subject of the conversation (usually from the first user message) and include it explicitly in the rewrite, even when the user's latest message omits it.
+- Resolve all pronouns ("it", "they", "them") AND definite references ("the plan", "the company", "this feature") to their concrete subjects.
+- If the latest message is already a complete standalone query, return it unchanged.
+- Return ONLY the rewritten query — no explanation, no quotes, no prefix.
+"#;
+
 
 async fn rewrite_query(
     client: &reqwest::Client,
@@ -101,7 +110,7 @@ async fn run_pipeline(
 
     let search_query = rewrite_query(&client, history, query).await?;
     
-    let sub_queries = decompose_query(&client, query).await?;
+    let sub_queries = decompose_query(&client, &search_query).await?;
 
     let search_results = search::search_many(&client, SEARXNG_URL, &sub_queries, PER_QUERY_TOP_K).await;
 

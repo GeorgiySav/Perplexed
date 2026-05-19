@@ -42,3 +42,6 @@ ratatui = "0.30.0"
 
 # cross encoder
 fastembed = "5.13.4"
+
+# markdown rendering
+pulldown-cmark = "0.12"

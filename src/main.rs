@@ -9,6 +9,7 @@ mod pipeline;
 mod chunk;
 mod rerank;
 mod rerank_ce;
+mod markdown;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
