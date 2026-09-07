@@ -1,4 +1,4 @@
-use crate::{chunk, context::{self, Citation}, extract, fetch, llm::{self, Message}, rerank, rerank_ce::rerank_ce, search};
+use crate::{chunk, context::{self, Citation}, extract, fetch, http, llm::{self, Message}, rerank, rerank_ce::rerank_ce, search};
 use indicatif::{ProgressBar, ProgressStyle};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -9,8 +9,6 @@ const EMBED_MODEL: &str = "mxbai-embed-large";
 const BI_ENCODER_POOL: usize = 20;
 const CROSS_ENCODER_TOP_K: usize = 8;
 const PER_QUERY_TOP_K: usize = 10;
-const REQUEST_TIMEOUT_SECS: u64 = 10;
-const USER_AGENT: &str = "Mozilla/5.0 (compatible; Perplexed/0.1)";
 
 pub enum PipelineEvent {
     Sources(Vec<Citation>),
@@ -103,24 +101,22 @@ async fn run_pipeline(
     history: &[Message],
     tx: &UnboundedSender<PipelineEvent>
 ) -> anyhow::Result<()> { 
-    let client = reqwest::Client::builder()
-    .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-    .user_agent(USER_AGENT)
-    .build()?;
+    let web = http::web_client()?;
+    let llm_http = http::llm_client()?;
 
-    let search_query = rewrite_query(&client, history, query).await?;
-    
-    let sub_queries = decompose_query(&client, &search_query).await?;
+    let search_query = rewrite_query(&llm_http, history, query).await?;
 
-    let search_results = search::search_many(&client, SEARXNG_URL, &sub_queries, PER_QUERY_TOP_K).await;
+    let sub_queries = decompose_query(&llm_http, &search_query).await?;
 
-    let fetched_pages = fetch::fetch_all(&client, search_results).await;
+    let search_results = search::search_many(&web, SEARXNG_URL, &sub_queries, PER_QUERY_TOP_K).await;
+
+    let fetched_pages = fetch::fetch_all(&web, search_results).await;
 
     let extracted_pages = extract::extract_all(fetched_pages);
 
     let chunks = chunk::chunk(&extracted_pages);
 
-    let reranked_chunks = rerank::rerank(&client, OLLAMA_URL, EMBED_MODEL, &search_query, chunks, BI_ENCODER_POOL).await?;
+    let reranked_chunks = rerank::rerank(&llm_http, OLLAMA_URL, EMBED_MODEL, &search_query, chunks, BI_ENCODER_POOL).await?;
 
     let top_chunks = rerank_ce(&search_query, reranked_chunks, CROSS_ENCODER_TOP_K)?;
 
@@ -137,7 +133,7 @@ async fn run_pipeline(
     messages.push(Message { role: "user".to_string(), content: ctx.user_prompt });
         
     llm::stream_chat(
-        &client,
+        &llm_http,
         OLLAMA_URL,
         MODEL,
         &messages,

@@ -1,4 +1,5 @@
 mod cli;
+mod http;
 mod context;
 mod extract;
 mod fetch;
