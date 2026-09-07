@@ -2,6 +2,8 @@
 
 A local, self-hosted Perplexity clone in Rust. Ask a question in a terminal UI and it searches the web, reads the pages, and streams a cited answer from a local LLM. Nothing leaves your machine except the searches and page fetches.
 
+![](./assets/showcase.gif)
+
 ## Pipeline
 
 ```
