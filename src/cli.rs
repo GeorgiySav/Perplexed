@@ -185,9 +185,21 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             }
 
-            // Conversation scroll bookkeeping
+            let conv_focused = app.focus == Focus::Conversation;
+            let conversation_paragraph = Paragraph::new(Text::from(lines))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Perplexed")
+                        .border_style(border_style(conv_focused)),
+                )
+                .wrap(Wrap { trim: false });
+
+            // Scroll bookkeeping based on actual wrapped row count, not raw line count.
+            let conv_inner_width = chunks[0].width.saturating_sub(2);
             let conv_visible = chunks[0].height.saturating_sub(2) as usize;
-            let conv_max = lines.len().saturating_sub(conv_visible) as u16;
+            let conv_total = conversation_paragraph.line_count(conv_inner_width);
+            let conv_max = conv_total.saturating_sub(conv_visible) as u16;
             app.conversation_max_scroll = conv_max;
             if app.conversation_locked_bottom {
                 app.conversation_scroll = conv_max;
@@ -195,17 +207,10 @@ pub async fn run() -> anyhow::Result<()> {
                 app.conversation_scroll = conv_max;
             }
 
-            let conv_focused = app.focus == Focus::Conversation;
-            let conversation_widget = Paragraph::new(Text::from(lines))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Perplexed")
-                        .border_style(border_style(conv_focused)),
-                )
-                .wrap(Wrap { trim: false })
-                .scroll((app.conversation_scroll, 0));
-            frame.render_widget(conversation_widget, chunks[0]);
+            frame.render_widget(
+                conversation_paragraph.scroll((app.conversation_scroll, 0)),
+                chunks[0],
+            );
 
             // ─── Sources pane ───
             let mut source_lines: Vec<Line> = Vec::new();
@@ -235,25 +240,29 @@ pub async fn run() -> anyhow::Result<()> {
                 }
             }
 
-            // Sources scroll bookkeeping
-            let src_visible = chunks[1].height.saturating_sub(2) as usize;
-            let src_max = source_lines.len().saturating_sub(src_visible) as u16;
-            app.sources_max_scroll = src_max;
-            if app.sources_scroll > src_max {
-                app.sources_scroll = src_max;
-            }
-
             let src_focused = app.focus == Focus::Sources;
-            let sources_widget = Paragraph::new(Text::from(source_lines))
+            let sources_paragraph = Paragraph::new(Text::from(source_lines))
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
                         .title("Sources")
                         .border_style(border_style(src_focused)),
                 )
-                .wrap(Wrap { trim: false })
-                .scroll((app.sources_scroll, 0));
-            frame.render_widget(sources_widget, chunks[1]);
+                .wrap(Wrap { trim: false });
+
+            let src_inner_width = chunks[1].width.saturating_sub(2);
+            let src_visible = chunks[1].height.saturating_sub(2) as usize;
+            let src_total = sources_paragraph.line_count(src_inner_width);
+            let src_max = src_total.saturating_sub(src_visible) as u16;
+            app.sources_max_scroll = src_max;
+            if app.sources_scroll > src_max {
+                app.sources_scroll = src_max;
+            }
+
+            frame.render_widget(
+                sources_paragraph.scroll((app.sources_scroll, 0)),
+                chunks[1],
+            );
 
             // ─── Input pane ───
             let input = Paragraph::new(app.input_buffer.as_str())
